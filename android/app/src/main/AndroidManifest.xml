@@ -40,17 +40,14 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!-- Bluetooth LE (escaneo de balizas). Sin esto, el plugin puede "iniciar"
-         el escaneo sin error pero nunca recibe ningun resultado: Android
-         simplemente no entrega los anuncios BLE si la app no tiene estos
-         permisos declarados y concedidos en tiempo de ejecucion. -->
-    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
-    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
-    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" tools:targetApi="s" />
-    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-    <!-- Sin el limite de maxSdkVersion: el plugin de Bluetooth revisa que
-         este permiso este declarado sin importar la version de Android,
-         aunque con "neverForLocation" arriba el sistema operativo no la pida
-         de verdad en Android 12 o mas nuevo. -->
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <!-- Los permisos de Bluetooth/Ubicacion NO se declaran aqui a mano:
+         @capacitor-community/bluetooth-le ya trae su propio
+         AndroidManifest.xml con exactamente los permisos correctos
+         (BLUETOOTH, BLUETOOTH_ADMIN, BLUETOOTH_SCAN, BLUETOOTH_CONNECT,
+         ACCESS_FINE_LOCATION/COARSE_LOCATION), y Gradle los fusiona solo al
+         compilar. Declararlos tambien aqui a mano causo un conflicto real
+         (maxSdkVersion distinto entre esta app y el del plugin), que hizo
+         que el permiso se perdiera en la fusion final: mejor dejar que el
+         plugin, ya probado por su fabricante, sea la unica fuente de verdad
+         para estos permisos. -->
 </manifest>
