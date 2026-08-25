@@ -38,7 +38,7 @@
     <a href="emparejamiento.html">Emparejar balizas →</a>
   </nav>
   <h1>🔵 Prueba de balizas BLE</h1>
-  <p class="sub">Proyecto de prueba aislado — NO es parte de EduPass Pick todavia. Solo valida si el celular detecta las balizas y que tan estable es la senal (RSSI) antes de integrarlo al sistema real. Solo se muestran balizas iBeacon con el UUID escolar configurado abajo — cualquier otro dispositivo Bluetooth (audifonos, relojes, etc.) se ignora.</p>
+  <p class="sub">Proyecto de prueba aislado — NO es parte de EduPass Pick todavia. Solo valida si el celular detecta las balizas y que tan estable es la senal (RSSI) antes de integrarlo al sistema real. Solo se muestran dispositivos Bluetooth cuyo nombre empieza con "CP35-" (asi vienen de fabrica, sin configurar nada) — cualquier otro (audifonos, relojes, etc.) se ignora.</p>
 
   <div class="row">
     <button id="btnScan">Iniciar escaneo</button>
@@ -46,7 +46,7 @@
   </div>
   <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted);margin-bottom:10px;">
     <input type="checkbox" id="chkDiagnostico" />
-    Modo diagnóstico: mostrar cualquier iBeacon cercano, sin filtrar por UUID de la escuela
+    Modo diagnóstico: mostrar cualquier dispositivo Bluetooth cercano, sin filtrar por nombre
   </label>
   <div id="status">Listo. Presiona "Iniciar escaneo" para buscar balizas cercanas.</div>
 
@@ -57,16 +57,11 @@
 
 <script src="ibeacon.js"></script>
 <script>
-  // Por ahora, mientras se prueba, se usa el UUID de FABRICA tal cual (no uno
-  // propio) -- cambiar el UUID desde DX-SMART causo mas confusion y errores
-  // de guardado que beneficio real durante las pruebas. El riesgo de que
-  // choque con otro aparato cercano usando el mismo UUID de ejemplo de Apple
-  // es bajo mientras se este probando fuera de la escuela; se puede cambiar
-  // a uno propio mas adelante, ya cerca de usarlo de verdad. Asi, una baliza
-  // recien reseteada de fabrica (o nueva sin tocar) ya funciona sin necesidad
-  // de configurar nada en DX-SMART -- solo Major/Minor si se quieren
-  // diferenciar varias entre si, pero ni eso es obligatorio para detectarla.
-  const SCHOOL_UUID = "E2C56DB5-DFFB-48D2-B060-D0F5A71096E0";
+  // Se filtra por nombre de Bluetooth ("CP35-...", de fabrica) en vez de por
+  // UUID de iBeacon -- cambiar el UUID desde DX-SMART causo mas confusion y
+  // errores de guardado que beneficio real durante las pruebas. Asi, una
+  // baliza recien reseteada de fabrica (o nueva sin tocar) ya se detecta sin
+  // necesidad de configurar nada en DX-SMART. Ver onScanResult() mas abajo.
 
   const BLE = () => window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BluetoothLe;
   let bleScanListener = null; // handle del addListener('onScanResult'), para poder quitarlo al detener
@@ -109,7 +104,7 @@
   function render() {
     const ignoredNote = document.getElementById("ignoredNote");
     ignoredNote.textContent = ignoredCount > 0
-      ? `${ignoredCount} dispositivo(s) Bluetooth cercano(s) ignorado(s) por no ser balizas escolares (UUID distinto).`
+      ? `${ignoredCount} dispositivo(s) Bluetooth cercano(s) ignorado(s) por no llamarse "CP35-...".`
       : "";
 
     if (seen.size === 0) {
@@ -130,7 +125,7 @@
         </div>
         <div class="id">${d.deviceId}</div>
         ${d.uuid ? `<div class="id">UUID: ${d.uuid}</div>` : ""}
-        <div class="majmin">Major: ${d.major} &middot; Minor: ${d.minor}</div>
+        ${d.major != null ? `<div class="majmin">Major: ${d.major} &middot; Minor: ${d.minor}</div>` : `<div class="majmin">(sin datos de iBeacon -- detectada solo por nombre)</div>`}
         <div class="bar-wrap"><div class="bar" style="width:${pct}%"></div></div>
         <div class="seen">visto hace ${secsAgo}s &middot; ${d.samples} lecturas</div>
       `;
@@ -139,33 +134,39 @@
   }
 
   function onScanResult(result) {
-    // Filtro por UUID escolar: ignora cualquier dispositivo Bluetooth que no
-    // sea una de nuestras balizas (audifonos, relojes, otros iBeacons, etc.)
-    // -- salvo que este activado el modo diagnostico, que muestra CUALQUIER
-    // iBeacon detectado (sin importar su UUID) para poder probar con una
-    // baliza de fabrica sin configurar, y asi aislar si el problema es del
-    // escaneo en si o de la configuracion/hardware de una baliza en concreto.
-    const parsed = window.IBeacon.parseIBeacon(result.manufacturerData);
+    // Filtro por NOMBRE de Bluetooth en vez de por UUID de iBeacon: todas las
+    // balizas DX-CP35 se llaman "CP35-XXXX" de fabrica, sin necesidad de
+    // configurar ni guardar nada en DX-SMART -- mucho mas simple y confiable
+    // que depender de que el Frame2/iBeacon haya quedado bien guardado con un
+    // UUID especifico (eso causo muchos problemas durante las pruebas). El
+    // UUID/Major/Minor, si se alcanzan a leer, se siguen mostrando nada mas
+    // como informacion extra, ya no como filtro. En modo diagnostico se
+    // muestra CUALQUIER dispositivo Bluetooth cercano, tenga o no nombre
+    // "CP35", para depurar a fondo si hace falta.
+    const name = result.localName || (result.device && result.device.name) || "";
     const diagnostico = chkDiagnostico && chkDiagnostico.checked;
-    if (!parsed || (!diagnostico && parsed.uuid.toUpperCase() !== SCHOOL_UUID.toUpperCase())) {
+    const esNuestraBaliza = /^cp35/i.test(name);
+    if (!diagnostico && !esNuestraBaliza) {
       ignoredCount += 1;
       return;
     }
 
+    const parsed = window.IBeacon.parseIBeacon(result.manufacturerData);
     const id = result.device.deviceId;
     const prev = seen.get(id);
     seen.set(id, {
       deviceId: id,
-      name: result.localName || result.device.name || (prev && prev.name) || null,
+      name: name || (prev && prev.name) || null,
       rssi: result.rssi,
-      major: parsed.major,
-      minor: parsed.minor,
-      uuid: diagnostico ? parsed.uuid : null,
+      major: parsed ? parsed.major : null,
+      minor: parsed ? parsed.minor : null,
+      uuid: parsed ? parsed.uuid : null,
       lastSeen: Date.now(),
       firstSeen: (prev && prev.firstSeen) || Date.now(),
       samples: (prev ? prev.samples : 0) + 1,
     });
-    log(`✅ iBeacon detectado: ${result.device.name || result.localName || id} (uuid ${parsed.uuid}, major ${parsed.major}, minor ${parsed.minor}) -> ${result.rssi} dBm`);
+    const detalle = parsed ? `uuid ${parsed.uuid}, major ${parsed.major}, minor ${parsed.minor}` : "sin datos de iBeacon";
+    log(`✅ baliza detectada: ${name || id} (${detalle}) -> ${result.rssi} dBm`);
   }
 
   async function startScan() {
