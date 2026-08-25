@@ -41,7 +41,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
 
     <!-- Bluetooth LE (escaneo de balizas). Sin esto, el plugin puede "iniciar"
-         el escaneo sin error pero nunca recibe ningun resultado -- Android
+         el escaneo sin error pero nunca recibe ningun resultado: Android
          simplemente no entrega los anuncios BLE si la app no tiene estos
          permisos declarados y concedidos en tiempo de ejecucion. -->
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
