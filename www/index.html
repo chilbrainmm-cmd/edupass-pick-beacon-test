@@ -44,6 +44,10 @@
     <button id="btnScan">Iniciar escaneo</button>
     <button id="btnClear">Limpiar</button>
   </div>
+  <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted);margin-bottom:10px;">
+    <input type="checkbox" id="chkDiagnostico" />
+    Modo diagnóstico: mostrar cualquier iBeacon cercano, sin filtrar por UUID de la escuela
+  </label>
   <div id="status">Listo. Presiona "Iniciar escaneo" para buscar balizas cercanas.</div>
 
   <div id="devices"></div>
@@ -78,6 +82,7 @@
   const statusEl = document.getElementById("status");
   const devicesEl = document.getElementById("devices");
   const logEl = document.getElementById("log");
+  const chkDiagnostico = document.getElementById("chkDiagnostico");
 
   let scanning = false;
   // deviceId -> { name, rssi, lastSeen, firstSeen, samples: [] }
@@ -121,6 +126,7 @@
           <span class="rssi">${d.rssi} dBm</span>
         </div>
         <div class="id">${d.deviceId}</div>
+        ${d.uuid ? `<div class="id">UUID: ${d.uuid}</div>` : ""}
         <div class="majmin">Major: ${d.major} &middot; Minor: ${d.minor}</div>
         <div class="bar-wrap"><div class="bar" style="width:${pct}%"></div></div>
         <div class="seen">visto hace ${secsAgo}s &middot; ${d.samples} lecturas</div>
@@ -132,8 +138,13 @@
   function onScanResult(result) {
     // Filtro por UUID escolar: ignora cualquier dispositivo Bluetooth que no
     // sea una de nuestras balizas (audifonos, relojes, otros iBeacons, etc.)
+    // -- salvo que este activado el modo diagnostico, que muestra CUALQUIER
+    // iBeacon detectado (sin importar su UUID) para poder probar con una
+    // baliza de fabrica sin configurar, y asi aislar si el problema es del
+    // escaneo en si o de la configuracion/hardware de una baliza en concreto.
     const parsed = window.IBeacon.parseIBeacon(result.manufacturerData);
-    if (!parsed || parsed.uuid.toUpperCase() !== SCHOOL_UUID.toUpperCase()) {
+    const diagnostico = chkDiagnostico && chkDiagnostico.checked;
+    if (!parsed || (!diagnostico && parsed.uuid.toUpperCase() !== SCHOOL_UUID.toUpperCase())) {
       ignoredCount += 1;
       return;
     }
@@ -146,11 +157,12 @@
       rssi: result.rssi,
       major: parsed.major,
       minor: parsed.minor,
+      uuid: diagnostico ? parsed.uuid : null,
       lastSeen: Date.now(),
       firstSeen: (prev && prev.firstSeen) || Date.now(),
       samples: (prev ? prev.samples : 0) + 1,
     });
-    log(`✅ baliza escolar ${result.device.name || result.localName || id} (major ${parsed.major}, minor ${parsed.minor}) -> ${result.rssi} dBm`);
+    log(`✅ iBeacon detectado: ${result.device.name || result.localName || id} (uuid ${parsed.uuid}, major ${parsed.major}, minor ${parsed.minor}) -> ${result.rssi} dBm`);
   }
 
   async function startScan() {
