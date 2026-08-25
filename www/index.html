@@ -57,13 +57,16 @@
 
 <script src="ibeacon.js"></script>
 <script>
-  // UUID que se configura IGUAL en TODAS las balizas de la escuela, desde la
-  // app DX-SMART (Frame2 -> iBeacon -> UUID). Se genero uno propio en vez de
-  // dejar el que trae de fabrica (E2C56DB5-DFFB-48D2-B060-D0F5A71096E0, el
-  // UUID de ejemplo oficial de Apple que traen casi todas las balizas
-  // genericas por default -- riesgo de chocar con otro dispositivo cercano
-  // que tambien lo haya dejado sin cambiar).
-  const SCHOOL_UUID = "8F4901A9-5C5A-46C0-8CD9-DC144852AC8C";
+  // Por ahora, mientras se prueba, se usa el UUID de FABRICA tal cual (no uno
+  // propio) -- cambiar el UUID desde DX-SMART causo mas confusion y errores
+  // de guardado que beneficio real durante las pruebas. El riesgo de que
+  // choque con otro aparato cercano usando el mismo UUID de ejemplo de Apple
+  // es bajo mientras se este probando fuera de la escuela; se puede cambiar
+  // a uno propio mas adelante, ya cerca de usarlo de verdad. Asi, una baliza
+  // recien reseteada de fabrica (o nueva sin tocar) ya funciona sin necesidad
+  // de configurar nada en DX-SMART -- solo Major/Minor si se quieren
+  // diferenciar varias entre si, pero ni eso es obligatorio para detectarla.
+  const SCHOOL_UUID = "E2C56DB5-DFFB-48D2-B060-D0F5A71096E0";
 
   const BLE = () => window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BluetoothLe;
   let bleScanListener = null; // handle del addListener('onScanResult'), para poder quitarlo al detener
