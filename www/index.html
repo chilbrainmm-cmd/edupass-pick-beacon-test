@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Prueba de balizas — EduPass Pick</title>
+<style>
+  :root { --navy:#1a2b4c; --mint:#2ecc9a; --coral:#ff6b6b; --muted:#6b7684; --line:#e3e7ee; --bg:#f5f7fa; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background:var(--bg); color:var(--navy); padding:16px; padding-bottom:40px; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  p.sub { color:var(--muted); font-size:13px; margin:0 0 16px; }
+  .row { display:flex; gap:8px; margin-bottom:16px; }
+  button { flex:1; padding:14px; font-size:15px; font-weight:700; border:none; border-radius:10px; cursor:pointer; }
+  #btnScan { background:var(--mint); color:#fff; }
+  #btnScan.scanning { background:var(--coral); }
+  #btnClear { background:#fff; color:var(--navy); border:1.5px solid var(--line); flex:0 0 auto; padding:14px 18px; }
+  #status { font-size:13px; color:var(--muted); margin-bottom:12px; min-height:18px; }
+  .device { background:#fff; border:1.5px solid var(--line); border-radius:12px; padding:12px 14px; margin-bottom:8px; }
+  .device .top { display:flex; justify-content:space-between; align-items:baseline; }
+  .device .name { font-weight:700; font-size:14px; }
+  .device .rssi { font-weight:800; font-size:16px; }
+  .device .id { color:var(--muted); font-size:11.5px; font-family: monospace; margin-top:2px; }
+  .device .bar-wrap { background:var(--line); border-radius:6px; height:6px; margin-top:8px; overflow:hidden; }
+  .device .bar { height:100%; background:var(--mint); border-radius:6px; transition: width .3s; }
+  .device .seen { color:var(--muted); font-size:11px; margin-top:4px; }
+  .empty { text-align:center; color:var(--muted); font-size:13px; padding:30px 0; }
+  #log { margin-top:20px; background:#111; color:#8f8; font-family: monospace; font-size:11px; padding:10px; border-radius:8px; max-height:160px; overflow-y:auto; white-space:pre-wrap; }
+  nav { margin-bottom:14px; display:flex; gap:14px; }
+  nav a { color:var(--navy); font-size:12.5px; text-decoration:none; border-bottom:1.5px solid var(--line); padding-bottom:2px; }
+  .device .majmin { color:var(--muted); font-size:11px; margin-top:2px; font-family:monospace; }
+  .ignored-note { color:var(--muted); font-size:11.5px; margin-top:10px; text-align:center; }
+</style>
+</head>
+<body>
+  <nav>
+    <a href="simulador.html">Simulador de fila →</a>
+    <a href="emparejamiento.html">Emparejar balizas →</a>
+  </nav>
+  <h1>🔵 Prueba de balizas BLE</h1>
+  <p class="sub">Proyecto de prueba aislado — NO es parte de EduPass Pick todavia. Solo valida si el celular detecta las balizas y que tan estable es la senal (RSSI) antes de integrarlo al sistema real. Solo se muestran balizas iBeacon con el UUID escolar configurado abajo — cualquier otro dispositivo Bluetooth (audifonos, relojes, etc.) se ignora.</p>
+
+  <div class="row">
+    <button id="btnScan">Iniciar escaneo</button>
+    <button id="btnClear">Limpiar</button>
+  </div>
+  <div id="status">Listo. Presiona "Iniciar escaneo" para buscar balizas cercanas.</div>
+
+  <div id="devices"></div>
+  <div class="ignored-note" id="ignoredNote"></div>
+
+  <div id="log"></div>
+
+<script src="ibeacon.js"></script>
+<script>
+  // UUID que se configura IGUAL en TODAS las balizas de la escuela, desde la
+  // app DX-SMART (Frame2 -> iBeacon -> UUID). Se genero uno propio en vez de
+  // dejar el que trae de fabrica (E2C56DB5-DFFB-48D2-B060-D0F5A71096E0, el
+  // UUID de ejemplo oficial de Apple que traen casi todas las balizas
+  // genericas por default -- riesgo de chocar con otro dispositivo cercano
+  // que tambien lo haya dejado sin cambiar).
+  const SCHOOL_UUID = "8F4901A9-5C5A-46C0-8CD9-DC144852AC8C";
+
+  const BLE = () => window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BluetoothLe;
+  // Fuera de la app nativa (Android/iOS con Capacitor) esto corre en Chrome
+  // de escritorio normal usando Web Bluetooth directamente -- sirve solo
+  // para validar rapido que el hardware si transmite y que la lectura de
+  // UUID/Major/Minor/RSSI es correcta, mientras se arma la app de verdad.
+  // Limitacion real de Web Bluetooth (no es un bug nuestro): solo deja
+  // seguir UNA baliza a la vez, elegida a mano en el selector nativo del
+  // navegador -- no hay forma de "ver todas las cercanas" como si hace el
+  // plugin de Capacitor en la app real.
+  let webBleDevice = null;
+
+  const btnScan = document.getElementById("btnScan");
+  const btnClear = document.getElementById("btnClear");
+  const statusEl = document.getElementById("status");
+  const devicesEl = document.getElementById("devices");
+  const logEl = document.getElementById("log");
+
+  let scanning = false;
+  // deviceId -> { name, rssi, lastSeen, firstSeen, samples: [] }
+  const seen = new Map();
+  let renderTimer = null;
+  let ignoredCount = 0; // dispositivos Bluetooth vistos que NO son balizas escolares (audifonos, relojes, etc.)
+
+  function log(msg) {
+    const time = new Date().toLocaleTimeString();
+    logEl.textContent += `[${time}] ${msg}\n`;
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  // Aproximacion muy burda de "cercania" a partir del RSSI.
+  // No es una distancia real en metros -- solo sirve para comparar balizas entre si durante la prueba.
+  function rssiToPercent(rssi) {
+    const clamped = Math.max(-100, Math.min(-40, rssi));
+    return Math.round(((clamped + 100) / 60) * 100);
+  }
+
+  function render() {
+    const ignoredNote = document.getElementById("ignoredNote");
+    ignoredNote.textContent = ignoredCount > 0
+      ? `${ignoredCount} dispositivo(s) Bluetooth cercano(s) ignorado(s) por no ser balizas escolares (UUID distinto).`
+      : "";
+
+    if (seen.size === 0) {
+      devicesEl.innerHTML = '<div class="empty">Todavia no se detecta ninguna baliza escolar.</div>';
+      return;
+    }
+    const list = [...seen.values()].sort((a, b) => b.rssi - a.rssi);
+    devicesEl.innerHTML = "";
+    list.forEach((d) => {
+      const secsAgo = Math.round((Date.now() - d.lastSeen) / 1000);
+      const pct = rssiToPercent(d.rssi);
+      const el = document.createElement("div");
+      el.className = "device";
+      el.innerHTML = `
+        <div class="top">
+          <span class="name">${d.name || "(sin nombre)"}</span>
+          <span class="rssi">${d.rssi} dBm</span>
+        </div>
+        <div class="id">${d.deviceId}</div>
+        <div class="majmin">Major: ${d.major} &middot; Minor: ${d.minor}</div>
+        <div class="bar-wrap"><div class="bar" style="width:${pct}%"></div></div>
+        <div class="seen">visto hace ${secsAgo}s &middot; ${d.samples} lecturas</div>
+      `;
+      devicesEl.appendChild(el);
+    });
+  }
+
+  function onScanResult(result) {
+    // Filtro por UUID escolar: ignora cualquier dispositivo Bluetooth que no
+    // sea una de nuestras balizas (audifonos, relojes, otros iBeacons, etc.)
+    const parsed = window.IBeacon.parseIBeacon(result.manufacturerData);
+    if (!parsed || parsed.uuid.toUpperCase() !== SCHOOL_UUID.toUpperCase()) {
+      ignoredCount += 1;
+      return;
+    }
+
+    const id = result.device.deviceId;
+    const prev = seen.get(id);
+    seen.set(id, {
+      deviceId: id,
+      name: result.localName || result.device.name || (prev && prev.name) || null,
+      rssi: result.rssi,
+      major: parsed.major,
+      minor: parsed.minor,
+      lastSeen: Date.now(),
+      firstSeen: (prev && prev.firstSeen) || Date.now(),
+      samples: (prev ? prev.samples : 0) + 1,
+    });
+    log(`✅ baliza escolar ${result.device.name || result.localName || id} (major ${parsed.major}, minor ${parsed.minor}) -> ${result.rssi} dBm`);
+  }
+
+  async function startScan() {
+    const ble = BLE();
+    if (ble) {
+      try {
+        await ble.initialize();
+        statusEl.textContent = "Bluetooth inicializado. Escaneando...";
+        log("BLE inicializado, iniciando escaneo.");
+        await ble.requestLEScan({}, onScanResult);
+        scanning = true;
+        btnScan.textContent = "Detener escaneo";
+        btnScan.classList.add("scanning");
+        renderTimer = setInterval(render, 1000);
+      } catch (err) {
+        statusEl.textContent = "Error al iniciar el escaneo: " + err.message;
+        log("ERROR al iniciar escaneo: " + JSON.stringify(err));
+      }
+      return;
+    }
+
+    if (navigator.bluetooth) {
+      try {
+        statusEl.textContent = "Elige la baliza en la ventana que va a abrir Chrome...";
+        log("Abriendo selector nativo de Bluetooth del navegador (Web Bluetooth)...");
+        // acceptAllDevices en vez de filtrar por manufacturerData: ese filtro
+        // fallaba silenciosamente en Chrome/Windows (Chrome cerraba la
+        // ventana solo, como si el usuario hubiera cancelado, sin mostrar
+        // nada). Mostrando todos los dispositivos cercanos, se elige a
+        // simple vista por nombre (ej. "CP35-48EE").
+        const device = await navigator.bluetooth.requestDevice({
+          acceptAllDevices: true,
+          optionalManufacturerData: [0x004c], // permiso para poder LEER el manufacturerData de Apple (iBeacon) una vez elegido
+        });
+        webBleDevice = device;
+        device.addEventListener("advertisementreceived", (event) => {
+          const manufacturerData = {};
+          event.manufacturerData.forEach((dataView, companyId) => {
+            manufacturerData[String(companyId)] = dataView;
+          });
+          onScanResult({
+            device: { deviceId: device.id, name: device.name },
+            localName: event.name,
+            rssi: event.rssi,
+            manufacturerData,
+          });
+        });
+        await device.watchAdvertisements();
+        scanning = true;
+        btnScan.textContent = "Detener escaneo";
+        btnScan.classList.add("scanning");
+        renderTimer = setInterval(render, 1000);
+        statusEl.textContent = "Escaneando (Web Bluetooth) — deja la baliza cerca y prendida.";
+        log("watchAdvertisements() iniciado sobre " + (device.name || device.id));
+      } catch (err) {
+        statusEl.textContent = "Error al iniciar el escaneo: " + err.message;
+        log("ERROR (Web Bluetooth): " + err.message);
+      }
+      return;
+    }
+
+    statusEl.textContent = "Este navegador no soporta Bluetooth (ni Capacitor ni Web Bluetooth). Prueba en Chrome de escritorio o Android.";
+    log("ERROR: ni Capacitor.Plugins.BluetoothLe ni navigator.bluetooth estan disponibles.");
+  }
+
+  async function stopScan() {
+    const ble = BLE();
+    if (ble) {
+      try { await ble.stopLEScan(); } catch (err) { log("ERROR al detener: " + JSON.stringify(err)); }
+    } else if (webBleDevice && webBleDevice.watchingAdvertisements) {
+      try { webBleDevice.unwatchAdvertisements(); } catch (err) { log("ERROR al detener (Web Bluetooth): " + err.message); }
+    }
+    scanning = false;
+    btnScan.textContent = "Iniciar escaneo";
+    btnScan.classList.remove("scanning");
+    statusEl.textContent = "Escaneo detenido.";
+    log("Escaneo detenido.");
+    if (renderTimer) clearInterval(renderTimer);
+  }
+
+  btnScan.addEventListener("click", () => (scanning ? stopScan() : startScan()));
+  btnClear.addEventListener("click", () => { seen.clear(); render(); log("Lista limpiada."); });
+
+  render();
+  log("Pagina cargada. Capacitor disponible: " + (!!BLE()) + " | Web Bluetooth disponible: " + (!!navigator.bluetooth));
+</script>
+</body>
+</html>

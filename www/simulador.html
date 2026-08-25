@@ -1,0 +1,466 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Simulador de fila — EduPass Pick</title>
+<style>
+  :root { --navy:#1a2b4c; --mint:#2ecc9a; --amber:#f5a623; --coral:#ff6b6b; --muted:#6b7684; --line:#e3e7ee; --bg:#f5f7fa; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background:var(--bg); color:var(--navy); padding:16px; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  p.sub { color:var(--muted); font-size:13px; margin:0 0 16px; max-width:640px; }
+  nav { margin-bottom:18px; display:flex; gap:14px; }
+  nav a { color:var(--navy); font-size:12.5px; text-decoration:none; border-bottom:1.5px solid var(--line); padding-bottom:2px; }
+  .grid { display:grid; grid-template-columns: 1fr; gap:20px; max-width:900px; }
+  @media (min-width: 800px) { .grid { grid-template-columns: 380px 1fr; } }
+  .card { background:#fff; border:1.5px solid var(--line); border-radius:12px; padding:16px; }
+  .card h2 { font-size:14px; margin:0 0 12px; }
+  .car-ctl { border-bottom:1px solid var(--line); padding-bottom:12px; margin-bottom:12px; }
+  .car-ctl:last-child { border:none; margin:0; padding:0; }
+  .car-ctl .top { display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; }
+  .car-ctl .name { font-weight:700; font-size:13px; }
+  .car-ctl .rssi-val { font-family:monospace; font-size:12px; color:var(--muted); }
+  .car-ctl input[type=text] { width:100%; padding:6px 8px; border:1.5px solid var(--line); border-radius:6px; font-size:12px; margin-bottom:6px; font-family:monospace; }
+  input[type=range] { width:100%; }
+  .btn-row { display:flex; gap:6px; margin-top:6px; }
+  button { border:none; border-radius:8px; padding:6px 10px; font-size:11.5px; font-weight:700; cursor:pointer; background:#eef1f6; color:var(--navy); }
+  button.primary { background:var(--mint); color:#fff; }
+  button.danger { background:var(--coral); color:#fff; }
+  /* ---- Barra de busqueda y filtros por zona ---- */
+  .search-box { display:flex; align-items:center; gap:8px; background:var(--bg); border:1.5px solid var(--line); border-radius:10px; padding:9px 12px; margin-bottom:12px; }
+  .search-box input { border:none; background:none; outline:none; font-size:13px; color:var(--navy); flex:1; }
+  .search-box input::placeholder { color:var(--muted); }
+  .filter-row { display:flex; gap:6px; margin-bottom:16px; flex-wrap:wrap; }
+  .filter-pill { border:1.5px solid var(--line); background:#fff; border-radius:20px; padding:6px 12px; font-size:11.5px; font-weight:700; cursor:pointer; color:var(--muted); }
+  .filter-pill.active { background:var(--navy); border-color:var(--navy); color:#fff; }
+
+  /* ---- Contenedor animado (FLIP) de la fila: la tarjeta destacada y las filas viven aqui como hermanos ---- */
+  #queueList { position:relative; }
+  #queueList > * { margin-bottom:10px; }
+  #queueList > *:last-child { margin-bottom:0; }
+
+  /* ---- Tarjeta destacada: el carro al frente de la fila ---- */
+  .hero-card { background:linear-gradient(165deg,#1a2b4c,#28406f); color:#fff; border-radius:16px; padding:18px; }
+  .hero-card .eyebrow { font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.06em; color:#9fb0d6; margin-bottom:6px; }
+  .hero-card .top { display:flex; align-items:flex-start; gap:12px; }
+  .hero-card .avatar { width:46px; height:46px; border-radius:50%; background:rgba(255,255,255,.12); display:flex; align-items:center; justify-content:center; font-size:22px; flex:0 0 auto; }
+  .hero-card .name { font-weight:800; font-size:16px; }
+  .hero-card .meta { font-size:11.5px; color:#c3cee6; margin-top:2px; font-family:monospace; }
+
+  .track { display:flex; align-items:center; margin:16px 0 14px; }
+  .track .step { flex:1; display:flex; flex-direction:column; align-items:center; position:relative; }
+  .track .dot { width:11px; height:11px; border-radius:50%; background:rgba(255,255,255,.25); border:2px solid rgba(255,255,255,.4); z-index:1; }
+  .track .step.done .dot { background:var(--mint); border-color:var(--mint); }
+  .track .step.current .dot { background:#fff; border-color:#fff; box-shadow:0 0 0 4px rgba(255,255,255,.2); }
+  .track .step .label { font-size:9.5px; color:#c3cee6; margin-top:6px; text-align:center; text-transform:uppercase; letter-spacing:.03em; }
+  .track .step.done .label, .track .step.current .label { color:#fff; }
+  .track .line { flex:1; height:2px; background:rgba(255,255,255,.25); margin-bottom:16px; }
+  .track .line.done { background:var(--mint); }
+
+  .hero-card .students { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:14px; }
+  .hero-card .chip { background:rgba(255,255,255,.14); border-radius:20px; padding:4px 11px; font-size:11.5px; }
+  .hero-card .unpaired { background:rgba(255,107,107,.18); border-radius:10px; padding:10px 12px; font-size:12px; margin-bottom:14px; }
+  .hero-card .unpaired a { color:#fff; font-weight:700; }
+  .hero-card .btn-confirm { width:100%; background:var(--mint); color:#fff; padding:13px; font-size:13.5px; border-radius:10px; }
+
+  /* ---- Lista del resto de la fila ---- */
+  .queue-item { display:flex; align-items:center; gap:12px; border:1.5px solid var(--line); border-radius:12px; padding:10px 12px; background:#fff; }
+  .queue-item .avatar { width:38px; height:38px; border-radius:50%; background:var(--bg); display:flex; align-items:center; justify-content:center; font-size:17px; flex:0 0 auto; }
+  .queue-item .info { flex:1; min-width:0; }
+  .queue-item .name { font-weight:700; font-size:13.5px; }
+  .queue-item .meta { color:var(--muted); font-size:11px; margin-top:1px; }
+  .queue-item .students-inline { color:var(--muted); font-size:11.5px; margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .zone-badge { font-size:10px; font-weight:800; padding:3px 8px; border-radius:20px; text-transform:uppercase; letter-spacing:.03em; white-space:nowrap; flex:0 0 auto; }
+  .zone-lejos { background:#eef1f6; color:var(--muted); }
+  .zone-acercandose { background:#FBF0DC; color:var(--amber); }
+  .zone-en_estacion { background:#e6f9f1; color:var(--mint); }
+  .queue-item button.mini { flex:0 0 auto; background:var(--bg); }
+  .empty { text-align:center; color:var(--muted); font-size:13px; padding:24px 0; }
+  .note { font-size:11.5px; color:var(--muted); margin-top:14px; line-height:1.5; }
+
+  /* ---- Alerta al guardia cuando un carro se va SIN que confirmara "Entregado" ---- */
+  #toasts { position:fixed; top:16px; right:16px; z-index:50; display:flex; flex-direction:column; gap:8px; max-width:320px; }
+  .toast { background:var(--amber); color:#3a2a05; border-radius:10px; padding:12px 14px; font-size:12.5px; font-weight:700; box-shadow:0 6px 20px rgba(0,0,0,.15); animation: toast-in .25s ease; }
+  @keyframes toast-in { from { transform:translateX(20px); opacity:0; } to { transform:translateX(0); opacity:1; } }
+</style>
+</head>
+<body>
+  <div id="toasts"></div>
+  <nav>
+    <a href="index.html">Prueba de escaneo</a>
+    <a href="emparejamiento.html">Emparejar balizas →</a>
+  </nav>
+  <h1>🚗 Simulador de fila — EduPass Pick</h1>
+  <p class="sub">Mueve los controles de señal de cada carro falso (como si se acercara o alejara de la escuela) para ver cómo se comporta la lógica de fila (zonas, orden, descarte, emparejamiento) sin necesitar balizas ni celular todavía.</p>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Carros simulados</h2>
+      <div id="controls"></div>
+      <div class="note">
+        Arrastra el control de señal de cada carro. Más a la derecha = señal más fuerte = más cerca.
+        Bájalo hasta el fondo y espera ~45s para ver el descarte automático por pérdida de señal.
+        El 4to control es una baliza "en blanco" — cambia su ID para probar el flujo de
+        <a href="emparejamiento.html">emparejar</a> una baliza nueva.
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Fila en vivo</h2>
+      <div class="search-box">
+        🔍 <input type="text" id="search" placeholder="Buscar familia o alumno..." />
+      </div>
+      <div class="filter-row" id="filters">
+        <button class="filter-pill active" data-zone="todos">Todos</button>
+        <button class="filter-pill" data-zone="en_estacion">🅿️ En la estación</button>
+        <button class="filter-pill" data-zone="acercandose">🚗 Acercándose</button>
+        <button class="filter-pill" data-zone="lejos">Lejos</button>
+      </div>
+      <div id="queueList"></div>
+      <div id="queueEmpty"></div>
+    </div>
+  </div>
+
+<script src="queue-logic.js"></script>
+<script src="pairing-store.js"></script>
+<script src="nivel-colors.js"></script>
+<script>
+  const controlsEl = document.getElementById("controls");
+  const queueListEl = document.getElementById("queueList");
+  const queueEmptyEl = document.getElementById("queueEmpty");
+  const searchEl = document.getElementById("search");
+  const filtersEl = document.getElementById("filters");
+
+  let searchTerm = "";
+  let zoneFilter = "todos";
+
+  // IDs con forma de MAC, como se veria una baliza BLE real. Se siembran emparejamientos
+  // de ejemplo para los primeros 3 (solo si el usuario todavia no guardo nada propio) --
+  // el 4to se deja sin emparejar a proposito para poder probar ese flujo.
+  const CARS = [
+    { id: "E4:5F:01:AA:12:9C", defaultLabel: "🚙 Camioneta gris — familia Pérez", defaultStudents: [{ name: "Juan Pérez López", grupo: "2° B", nivel: "Primaria" }] },
+    { id: "E4:5F:01:AA:12:9D", defaultLabel: "🚗 Sedán rojo — familia Gómez", defaultStudents: [{ name: "Ana Gómez Ruiz", grupo: "4° A", nivel: "Secundaria" }, { name: "Luis Gómez Ruiz", grupo: "1° C", nivel: "Preescolar" }] },
+    { id: "E4:5F:01:AA:12:9E", defaultLabel: "🚐 Van azul — familia Torres", defaultStudents: [{ name: "Sofía Torres Cano", grupo: "3° B", nivel: "Preparatoria" }] },
+  ];
+
+  window.PairingStore.seedDefaultsIfEmpty(
+    CARS.map((c) => ({
+      beaconId: c.id,
+      label: c.defaultLabel,
+      students: c.defaultStudents,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }))
+  );
+
+  const zoneLabel = { lejos: "Lejos", acercandose: "Acercándose", en_estacion: "En la estación" };
+
+  function showToast(msg) {
+    const el = document.createElement("div");
+    el.className = "toast";
+    el.textContent = msg;
+    document.getElementById("toasts").appendChild(el);
+    setTimeout(() => el.remove(), 6000);
+  }
+
+  // Solo la confirmacion manual ("Entregado") es un exito real. Si un carro
+  // se va y el guardia no confirmo a tiempo, se le avisa -- NUNCA se reporta
+  // como entrega exitosa, porque no hay garantia de que el alumno correcto
+  // subio al carro correcto (ver discusion sobre REMOVE_REASON).
+  function onBeaconRemoved(deviceId, reason, label) {
+    if (reason === window.REMOVE_REASON.CONFIRMED) return; // flujo normal, nada que avisar
+    const motivo = reason === window.REMOVE_REASON.DEPARTED_UNCONFIRMED
+      ? "se alejó sin que confirmaras \"Entregado\""
+      : "dejó de detectarse por completo";
+    showToast(`⚠️ ${label} ${motivo}. Revisa si el alumno subió bien al carro.`);
+  }
+
+  const bq = new BeaconQueue({ onChange: () => {}, onRemove: onBeaconRemoved }); // el render se hace en su propio timer, mas lento, para no repintar la lista varias veces por segundo
+
+  // Controles: un slider de RSSI (-100 a -40) por carro, con ruido aleatorio agregado
+  // a cada lectura para simular lo que pasaria con una baliza real.
+  const sliderValues = {};
+  const currentIds = {}; // slot -> id de baliza actualmente asignado a ese control
+
+  function controlHtml(slot, idValue, editableId) {
+    return `
+      ${editableId ? `<input type="text" value="${idValue}" id="idinput-${slot}" placeholder="ID de baliza a probar" />` : ""}
+      <div class="top">
+        <span class="name" id="name-${slot}"></span>
+        <span class="rssi-val" id="val-${slot}">apagado</span>
+      </div>
+      <input type="range" min="-100" max="-40" value="-100" id="slider-${slot}" />
+      <div class="btn-row">
+        <button class="primary" data-action="approach" data-slot="${slot}">▶ Simular llegada</button>
+        <button data-action="off" data-slot="${slot}">Apagar</button>
+      </div>
+    `;
+  }
+
+  CARS.forEach((car, i) => {
+    const slot = "slot-" + i;
+    currentIds[slot] = car.id;
+    sliderValues[slot] = -100;
+    const wrap = document.createElement("div");
+    wrap.className = "car-ctl";
+    wrap.innerHTML = controlHtml(slot, car.id, false);
+    controlsEl.appendChild(wrap);
+    updateSlotName(slot);
+  });
+
+  // Slot extra: baliza en blanco para probar el flujo de emparejar algo nuevo.
+  (function addBlankSlot() {
+    const slot = "slot-custom";
+    currentIds[slot] = "FF:00:11:22:33:44";
+    sliderValues[slot] = -100;
+    const wrap = document.createElement("div");
+    wrap.className = "car-ctl";
+    wrap.innerHTML = controlHtml(slot, currentIds[slot], true);
+    controlsEl.appendChild(wrap);
+    updateSlotName(slot);
+    document.getElementById(`idinput-${slot}`).addEventListener("change", (e) => {
+      currentIds[slot] = e.target.value.trim() || "FF:00:11:22:33:44";
+      updateSlotName(slot);
+    });
+  })();
+
+  function updateSlotName(slot) {
+    const pairing = window.PairingStore.findPairing(currentIds[slot]);
+    document.getElementById(`name-${slot}`).textContent = pairing ? pairing.label : "⚠️ sin emparejar";
+    const val = sliderValues[slot];
+    document.getElementById(`val-${slot}`).textContent = val <= -100 ? "apagado" : `${val} dBm`;
+  }
+
+  controlsEl.addEventListener("input", (e) => {
+    if (e.target.matches('input[type=range]')) {
+      const slot = e.target.id.replace("slider-", "");
+      sliderValues[slot] = Number(e.target.value);
+    }
+  });
+
+  controlsEl.addEventListener("click", (e) => {
+    const btn = e.target.closest("button");
+    if (!btn) return;
+    const slot = btn.dataset.slot;
+    if (btn.dataset.action === "off") {
+      sliderValues[slot] = -100;
+      document.getElementById(`slider-${slot}`).value = -100;
+    } else if (btn.dataset.action === "approach") {
+      animateApproach(slot);
+    }
+  });
+
+  function animateApproach(slot) {
+    const slider = document.getElementById(`slider-${slot}`);
+    let v = -95;
+    slider.value = v;
+    sliderValues[slot] = v;
+    const timer = setInterval(() => {
+      v += 3;
+      if (v >= -50) { v = -50; clearInterval(timer); }
+      slider.value = v;
+      sliderValues[slot] = v;
+    }, 400);
+  }
+
+  const ZONE_ORDER = ["lejos", "acercandose", "en_estacion"];
+
+  // Separa el emoji inicial de una etiqueta ("🚙 Camioneta gris" -> {icon:"🚙", text:"Camioneta gris"})
+  // para poder mostrarlo como avatar en vez de repetirlo dentro del texto.
+  function splitIcon(label) {
+    const m = label.match(/^([\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]+)\s*/u);
+    return m ? { icon: m[1], text: label.slice(m[0].length) } : { icon: "🚗", text: label };
+  }
+
+  function progressTrack(zone) {
+    const idx = ZONE_ORDER.indexOf(zone);
+    return ZONE_ORDER.map((z, i) => {
+      const state = i < idx ? "done" : i === idx ? "current" : "";
+      const step = `<div class="step ${state}"><div class="dot"></div><div class="label">${zoneLabel[z]}</div></div>`;
+      if (i === 0) return step;
+      return `<div class="line ${i <= idx ? "done" : ""}"></div>${step}`;
+    }).join("");
+  }
+
+  function studentLabel(s) { return s.grupo ? `${s.name} — ${s.grupo}` : s.name; }
+
+  function studentChip(s) {
+    const color = s.nivel ? window.NivelColors.colorForNivel(s.nivel).strong : null;
+    const style = color ? ` style="background:${color};color:#fff;font-weight:700;"` : "";
+    return `<span class="chip"${style}>${studentLabel(s)}</span>`;
+  }
+
+  function matchesFilters(it, pairing) {
+    if (zoneFilter !== "todos" && it.zone !== zoneFilter) return false;
+    if (searchTerm) {
+      const studentText = pairing ? pairing.students.map(studentLabel).join(" ") : "";
+      const haystack = [pairing ? pairing.label : "", studentText, it.deviceId].join(" ").toLowerCase();
+      if (!haystack.includes(searchTerm.toLowerCase())) return false;
+    }
+    return true;
+  }
+
+  // Devuelven solo el HTML INTERNO (no el div contenedor) -- el contenedor
+  // (con su clase hero-card/queue-item) lo maneja renderQueue() para poder
+  // animarlo con FLIP sin destruirlo y recrearlo en cada repintado.
+  function heroCardInnerHtml(it, pairing) {
+    const { icon, text } = splitIcon(pairing ? pairing.label : "Baliza sin identificar");
+    return `
+      <div class="eyebrow">Al frente de la fila</div>
+      <div class="top">
+        <div class="avatar">${icon}</div>
+        <div>
+          <div class="name">${text}</div>
+          <div class="meta">${it.deviceId} &middot; ${Math.round(it.smoothedRssi)} dBm</div>
+        </div>
+      </div>
+      <div class="track">${progressTrack(it.zone)}</div>
+      ${pairing
+        ? `<div class="students">${pairing.students.map(studentChip).join("")}</div>`
+        : `<div class="unpaired">⚠️ No sabemos qué alumno(s) recoge este carro. <a href="emparejamiento.html">Emparejar esta baliza →</a></div>`
+      }
+      <button class="btn-confirm" data-deliver="${it.deviceId}">✅ Confirmar entrega</button>
+    `;
+  }
+
+  function queueRowInnerHtml(it, pairing) {
+    const { icon, text } = splitIcon(pairing ? pairing.label : "Baliza sin identificar");
+    return `
+      <div class="avatar">${icon}</div>
+      <div class="info">
+        <div class="name">${text}</div>
+        ${pairing
+          ? `<div class="students-inline">${pairing.students.map(studentLabel).join(", ")}</div>`
+          : `<div class="students-inline" style="color:var(--coral);">Sin emparejar</div>`
+        }
+      </div>
+      <span class="zone-badge zone-${it.zone}">${zoneLabel[it.zone]}</span>
+      <button class="mini" data-deliver="${it.deviceId}">✅</button>
+    `;
+  }
+
+  // Publica el estado de la fila (SIN filtrar por busqueda/zona -- eso es solo
+  // para la vista del staff) en localStorage, para que "pantalla-alumnos.html"
+  // (el tablero grande, en otra pestana/pantalla) se actualice en vivo. En la
+  // integracion real esto seria una actualizacion que llega desde el backend
+  // (work/server.js) a todos los dispositivos conectados, no localStorage --
+  // aqui es solo el sustituto mas simple para la maqueta.
+  const LIVE_QUEUE_KEY = "edupass_pick_live_queue";
+  function broadcastLiveQueue(allItems) {
+    try {
+      localStorage.setItem(LIVE_QUEUE_KEY, JSON.stringify(allItems.map((it) => ({ deviceId: it.deviceId, zone: it.zone }))));
+    } catch (e) {}
+  }
+
+  // deviceId -> elemento DOM persistente (se reutiliza entre repintados, nunca
+  // se destruye/recrea, para poder animar su movimiento con la tecnica FLIP:
+  // First -- se mide su posicion antes de reordenar; Last -- se mide despues;
+  // Invert -- se le aplica un transform instantaneo para que VISUALMENTE
+  // siga en su posicion vieja; Play -- se quita el transform con transition,
+  // asi el navegador anima el viaje de la posicion vieja a la nueva. Esto es
+  // lo que da el efecto de "espejo digital" cuando un carro rebasa a otro.
+  const itemElements = new Map();
+
+  function renderQueue(allItems) {
+    broadcastLiveQueue(allItems);
+
+    const items = allItems.filter((it) => matchesFilters(it, window.PairingStore.findPairing(it.deviceId)));
+    if (items.length === 0) {
+      itemElements.forEach((el) => el.remove());
+      itemElements.clear();
+      queueEmptyEl.innerHTML = allItems.length === 0
+        ? '<div class="empty">Ningún carro en rango todavía. Mueve un control de señal.</div>'
+        : '<div class="empty">Nada coincide con la búsqueda o el filtro actual.</div>';
+      return;
+    }
+    queueEmptyEl.innerHTML = "";
+
+    // FLIP -- First: posicion actual de cada tarjeta que ya existia antes de este repintado.
+    const firstRects = new Map();
+    itemElements.forEach((el, id) => firstRects.set(id, el.getBoundingClientRect()));
+
+    const seenIds = new Set();
+    items.forEach((it, idx) => {
+      seenIds.add(it.deviceId);
+      const pairing = window.PairingStore.findPairing(it.deviceId);
+      const isHero = idx === 0;
+      let el = itemElements.get(it.deviceId);
+      if (!el) {
+        el = document.createElement("div");
+        itemElements.set(it.deviceId, el);
+      }
+      el.className = isHero ? "hero-card" : "queue-item";
+      el.innerHTML = isHero ? heroCardInnerHtml(it, pairing) : queueRowInnerHtml(it, pairing);
+
+      const refNode = queueListEl.children[idx] || null;
+      if (queueListEl.children[idx] !== el) queueListEl.insertBefore(el, refNode);
+    });
+
+    // Quitar tarjetas que ya no aplican (se entregaron, se fueron, o las tapo el filtro).
+    [...itemElements.keys()].forEach((id) => {
+      if (!seenIds.has(id)) {
+        itemElements.get(id).remove();
+        itemElements.delete(id);
+      }
+    });
+
+    // FLIP -- Last, Invert, Play: anima cada tarjeta desde su posicion vieja a la nueva.
+    itemElements.forEach((el, id) => {
+      const first = firstRects.get(id);
+      if (!first) return; // tarjeta nueva, no hay posicion previa que animar
+      const last = el.getBoundingClientRect();
+      const dy = first.top - last.top;
+      if (Math.abs(dy) < 1) return;
+      el.style.transition = "none";
+      el.style.transform = `translateY(${dy}px)`;
+      requestAnimationFrame(() => {
+        el.style.transition = "transform .4s cubic-bezier(.2,.8,.2,1)";
+        el.style.transform = "";
+      });
+    });
+  }
+
+  function onDeliverClick(e) {
+    const btn = e.target.closest("button[data-deliver]");
+    if (!btn) return;
+    bq.markDelivered(btn.dataset.deliver);
+  }
+  queueListEl.addEventListener("click", onDeliverClick);
+
+  searchEl.addEventListener("input", () => {
+    searchTerm = searchEl.value.trim();
+    renderQueue(bq.getQueue());
+  });
+
+  filtersEl.addEventListener("click", (e) => {
+    const btn = e.target.closest(".filter-pill");
+    if (!btn) return;
+    zoneFilter = btn.dataset.zone;
+    [...filtersEl.children].forEach((b) => b.classList.toggle("active", b === btn));
+    renderQueue(bq.getQueue());
+  });
+
+  // Lecturas continuas simuladas: cada 800ms, alimenta al motor de fila con el valor
+  // actual del slider de cada carro + un poco de ruido aleatorio (como una baliza real).
+  setInterval(() => {
+    Object.keys(currentIds).forEach((slot) => {
+      const base = sliderValues[slot];
+      if (base <= -100) return; // "apagado", no manda lecturas
+      const noisy = base + (Math.random() * 10 - 5); // +/-5 dBm de ruido
+      bq.onReading(currentIds[slot], noisy);
+    });
+  }, 800);
+
+  // Repintar la lista y los nombres de los controles en su propio ritmo (mas lento que
+  // las lecturas crudas de arriba) para evitar parpadeo y que un tap no falle por un
+  // repintado a medias.
+  setInterval(() => {
+    renderQueue(bq.getQueue());
+    Object.keys(currentIds).forEach(updateSlotName);
+  }, 1200);
+
+  renderQueue([]);
+</script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+{
+  "appId": "com.karrtechnology.edupasspick.beacontest",
+  "appName": "EduPass Pick - Prueba de Balizas",
+  "webDir": "www",
+  "plugins": {
+    "BluetoothLe": {
+      "displayStrings": {
+        "scanning": "Buscando balizas...",
+        "cancel": "Cancelar",
+        "availableDevices": "Balizas disponibles",
+        "noDeviceFound": "No se encontro ninguna baliza"
+      }
+    }
+  }
+}

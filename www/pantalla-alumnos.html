@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Alumnos listos — EduPass Pick</title>
+<style>
+  :root { --navy:#1a2b4c; --mint:#2ecc9a; --muted:#8996ab; --line:#2a3a5c; --bg:#0f1a30; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background:var(--bg); color:#fff; padding:28px; }
+  header { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:22px; }
+  h1 { font-size:22px; margin:0; }
+  header nav a { color:var(--muted); font-size:13px; text-decoration:none; margin-left:16px; }
+  .clock { color:var(--muted); font-size:15px; font-variant-numeric:tabular-nums; }
+
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:18px; }
+
+  .card { border-radius:18px; padding:22px; position:relative; overflow:hidden; transition:background .3s, transform .2s; border:2px solid var(--line); background:#16223f; }
+  .card .nivel-tag { display:inline-block; font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.05em; padding:4px 10px; border-radius:20px; margin-bottom:12px; }
+  .card .name { font-size:23px; font-weight:800; line-height:1.2; text-transform:uppercase; }
+  .card .grupo { font-size:15px; color:var(--muted); margin-top:4px; }
+  .card .family { font-size:12px; color:var(--muted); margin-top:10px; opacity:.8; }
+  .card .status { margin-top:16px; font-size:13px; font-weight:700; color:var(--muted); }
+
+  .card.arrived {
+    background:#1ddb85;
+    border-color:#1ddb85;
+    transform:scale(1.02);
+    animation:pulse 1s ease-in-out infinite;
+  }
+  .card.arrived .name, .card.arrived .grupo, .card.arrived .family { color:#06301c; }
+  .card.arrived .status { color:#06301c; font-size:15px; }
+  .card.arrived .nivel-tag { background:rgba(6,48,28,.18); color:#06301c; }
+
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(29,219,133,.6); }
+    50% { box-shadow: 0 0 0 16px rgba(29,219,133,0); }
+  }
+
+  .empty { text-align:center; color:var(--muted); padding:80px 0; font-size:16px; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>🟢 Alumnos listos — EduPass Pick</h1>
+    <div>
+      <span class="clock" id="clock"></span>
+      <nav style="display:inline;">
+        <a href="simulador.html">← Simulador de fila</a>
+        <a href="emparejamiento.html">Emparejar balizas</a>
+      </nav>
+    </div>
+  </header>
+
+  <div id="grid" class="grid"></div>
+
+<script src="pairing-store.js"></script>
+<script src="nivel-colors.js"></script>
+<script>
+  const LIVE_QUEUE_KEY = "edupass_pick_live_queue";
+  const gridEl = document.getElementById("grid");
+  const clockEl = document.getElementById("clock");
+
+  function readLiveQueue() {
+    try {
+      const raw = localStorage.getItem(LIVE_QUEUE_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  // Aplana los emparejamientos a una tarjeta por ALUMNO (una familia con 2
+  // hermanos = 2 tarjetas, cada una se enciende independiente si comparten
+  // carro -- las dos se prenden juntas porque comparten la misma baliza).
+  function buildStudentCards() {
+    const liveByBeacon = new Map(readLiveQueue().map((it) => [it.deviceId, it.zone]));
+    const cards = [];
+    window.PairingStore.getPairings().forEach((pairing) => {
+      const zone = liveByBeacon.get(pairing.beaconId) || null;
+      pairing.students.forEach((s) => {
+        cards.push({
+          name: s.name,
+          grupo: s.grupo,
+          nivel: s.nivel,
+          familyLabel: pairing.label,
+          arrived: zone === "en_estacion",
+          approaching: zone === "acercandose",
+        });
+      });
+    });
+    return cards;
+  }
+
+  function render() {
+    const cards = buildStudentCards();
+    if (cards.length === 0) {
+      gridEl.innerHTML = '<div class="empty">Todavía no hay alumnos emparejados. Ve a "Emparejar balizas".</div>';
+      return;
+    }
+    // Los que ya llegaron (verde) primero, para que salten a la vista arriba a la izquierda.
+    cards.sort((a, b) => (b.arrived - a.arrived) || (b.approaching - a.approaching));
+
+    gridEl.innerHTML = cards
+      .map((c) => {
+        const color = c.nivel ? window.NivelColors.colorForNivel(c.nivel).strong : "#2a3a5c";
+        const status = c.arrived ? "🚗 ¡Su carro está en la puerta!" : c.approaching ? "Acercándose..." : "Esperando";
+        return `
+          <div class="card ${c.arrived ? "arrived" : ""}" style="${c.arrived ? "" : `border-color:${color};`}">
+            <span class="nivel-tag" style="background:${c.arrived ? "" : color};">${c.nivel || "Sin nivel"}</span>
+            <div class="name">${c.name}</div>
+            <div class="grupo">${c.grupo || ""}</div>
+            <div class="family">${c.familyLabel}</div>
+            <div class="status">${status}</div>
+          </div>
+        `;
+      })
+      .join("");
+  }
+
+  function tickClock() {
+    clockEl.textContent = new Date().toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  }
+
+  // Se actualiza al instante si otra pestaña (el simulador) cambia el estado,
+  // y ademas cada segundo como respaldo.
+  window.addEventListener("storage", (e) => { if (e.key === LIVE_QUEUE_KEY) render(); });
+  setInterval(render, 1000);
+  setInterval(tickClock, 1000);
+
+  render();
+  tickClock();
+</script>
+</body>
+</html>

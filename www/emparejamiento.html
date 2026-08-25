@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Emparejar balizas — EduPass Pick</title>
+<style>
+  :root { --navy:#1a2b4c; --mint:#2ecc9a; --amber:#f5a623; --coral:#ff6b6b; --muted:#6b7684; --line:#e3e7ee; --bg:#f5f7fa; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background:var(--bg); color:var(--navy); padding:16px; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  p.sub { color:var(--muted); font-size:13px; margin:0 0 16px; max-width:640px; }
+  nav { margin-bottom:18px; display:flex; gap:14px; }
+  nav a { color:var(--navy); font-size:12.5px; text-decoration:none; border-bottom:1.5px solid var(--line); padding-bottom:2px; }
+  .grid { display:grid; grid-template-columns:1fr; gap:20px; max-width:900px; }
+  @media (min-width: 800px) { .grid { grid-template-columns: 360px 1fr; } }
+  .card { background:#fff; border:1.5px solid var(--line); border-radius:12px; padding:16px; }
+  .card h2 { font-size:14px; margin:0 0 12px; }
+  label { display:block; font-size:12px; font-weight:700; color:var(--muted); margin-bottom:4px; margin-top:12px; }
+  label:first-of-type { margin-top:0; }
+  input[type=text] { width:100%; padding:9px 10px; border:1.5px solid var(--line); border-radius:8px; font-size:13.5px; }
+  .student-row { display:flex; gap:6px; margin-bottom:6px; }
+  .student-row input.name { flex:2; }
+  .student-row input.grupo { flex:1; }
+  .student-row select.nivel { flex:1; border:1.5px solid var(--line); border-radius:8px; font-size:12.5px; padding:0 6px; }
+  .student-row button { flex:0 0 auto; }
+  .pairing .chip.nivel { color:#fff; font-weight:700; }
+  button { border:none; border-radius:8px; padding:8px 12px; font-size:12.5px; font-weight:700; cursor:pointer; background:#eef1f6; color:var(--navy); }
+  button.primary { background:var(--mint); color:#fff; width:100%; margin-top:14px; padding:11px; font-size:13.5px; }
+  button.danger-mini { background:#fbe4e4; color:var(--coral); }
+  .msg { font-size:12.5px; margin-top:10px; min-height:16px; }
+  .msg.error { color:var(--coral); }
+  .msg.ok { color:var(--mint); }
+  .pairing { border:1.5px solid var(--line); border-radius:10px; padding:12px 14px; margin-bottom:10px; }
+  .pairing .top { display:flex; justify-content:space-between; align-items:flex-start; gap:8px; }
+  .pairing .label { font-weight:700; font-size:13.5px; }
+  .pairing .id { color:var(--muted); font-family:monospace; font-size:11px; margin-top:2px; }
+  .pairing .students { margin-top:8px; display:flex; flex-wrap:wrap; gap:6px; }
+  .pairing .chip { background:#eef1f6; border-radius:20px; padding:4px 10px; font-size:11.5px; }
+  .empty { text-align:center; color:var(--muted); font-size:13px; padding:24px 0; }
+  .hint { font-size:11px; color:var(--muted); margin-top:14px; line-height:1.5; }
+</style>
+</head>
+<body>
+  <nav>
+    <a href="index.html">← Prueba de escaneo</a>
+    <a href="simulador.html">Simulador de fila</a>
+  </nav>
+  <h1>🔗 Emparejar balizas</h1>
+  <p class="sub">Asocia el ID de cada baliza física con la familia y los alumnos que recoge ese carro. Una vez emparejada, la baliza aparece identificada por nombre en la fila en vez de solo su ID.</p>
+
+  <div class="grid">
+    <div class="card">
+      <h2 id="formTitle">Nueva baliza</h2>
+      <label>ID de la baliza (Major-Minor)</label>
+      <input type="text" id="beaconId" placeholder="ej. 1-1" />
+
+      <label>Nombre para identificar (carro / familia)</label>
+      <input type="text" id="beaconLabel" placeholder="ej. Camioneta gris — familia Pérez" />
+
+      <label>Alumno(s) que recoge este carro</label>
+      <div id="studentRows"></div>
+      <button id="btnAddStudent" type="button">+ Agregar alumno</button>
+
+      <button class="primary" id="btnSave">Guardar emparejamiento</button>
+      <div class="msg" id="msg"></div>
+      <div class="hint">
+        Cada baliza fisica se configura una sola vez desde la app oficial "DX-SMART" del
+        fabricante (ahi se le pone su Major y Minor). El UUID es el mismo para todas las balizas
+        de la escuela; lo que distingue a una baliza de otra es su combinacion Major-Minor, por
+        eso se usa aqui como ID (ej. "1-1", "1-2"...). Tambien puedes verla confirmada en la
+        pantalla de "Prueba de escaneo" una vez que la baliza este prendida y cerca. Mientras
+        tanto puedes escribir cualquier texto de prueba y usarlo en el simulador de fila.
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Balizas emparejadas</h2>
+      <div id="list"></div>
+    </div>
+  </div>
+
+<script src="pairing-store.js"></script>
+<script src="nivel-colors.js"></script>
+<script>
+  const beaconIdInput = document.getElementById("beaconId");
+  const beaconLabelInput = document.getElementById("beaconLabel");
+  const studentRowsEl = document.getElementById("studentRows");
+  const msgEl = document.getElementById("msg");
+  const listEl = document.getElementById("list");
+  const formTitle = document.getElementById("formTitle");
+
+  let editingId = null; // si no es null, estamos editando esa baliza en vez de crear una nueva
+
+  const NIVELES = ["Preescolar", "Primaria", "Secundaria", "Preparatoria"];
+
+  function esc(s) { return String(s || "").replace(/"/g, "&quot;"); }
+
+  function addStudentRow(student = { name: "", grupo: "", nivel: "" }) {
+    const row = document.createElement("div");
+    row.className = "student-row";
+    row.innerHTML = `
+      <input type="text" class="name" placeholder="Nombre del alumno" value="${esc(student.name)}" />
+      <select class="nivel">
+        <option value="">Nivel...</option>
+        ${NIVELES.map((n) => `<option value="${n}" ${student.nivel === n ? "selected" : ""}>${n}</option>`).join("")}
+      </select>
+      <input type="text" class="grupo" placeholder="Grupo (ej. 2° B)" value="${esc(student.grupo)}" />
+      <button type="button" data-remove>✕</button>`;
+    row.querySelector("[data-remove]").addEventListener("click", () => {
+      if (studentRowsEl.children.length > 1) row.remove();
+      else { row.querySelector(".name").value = ""; row.querySelector(".grupo").value = ""; row.querySelector(".nivel").value = ""; }
+    });
+    studentRowsEl.appendChild(row);
+  }
+
+  function resetForm() {
+    editingId = null;
+    formTitle.textContent = "Nueva baliza";
+    beaconIdInput.value = "";
+    beaconIdInput.disabled = false;
+    beaconLabelInput.value = "";
+    studentRowsEl.innerHTML = "";
+    addStudentRow();
+    msgEl.textContent = "";
+    msgEl.className = "msg";
+  }
+
+  document.getElementById("btnAddStudent").addEventListener("click", () => addStudentRow());
+
+  document.getElementById("btnSave").addEventListener("click", () => {
+    const students = [...studentRowsEl.querySelectorAll(".student-row")].map((row) => ({
+      name: row.querySelector(".name").value,
+      grupo: row.querySelector(".grupo").value,
+      nivel: row.querySelector(".nivel").value,
+    }));
+    try {
+      window.PairingStore.upsertPairing({
+        beaconId: beaconIdInput.value,
+        label: beaconLabelInput.value,
+        students,
+      });
+      msgEl.textContent = "Guardado correctamente.";
+      msgEl.className = "msg ok";
+      resetForm();
+      renderList();
+    } catch (err) {
+      msgEl.textContent = err.message;
+      msgEl.className = "msg error";
+    }
+  });
+
+  function startEdit(beaconId) {
+    const p = window.PairingStore.findPairing(beaconId);
+    if (!p) return;
+    editingId = p.beaconId;
+    formTitle.textContent = "Editando baliza";
+    beaconIdInput.value = p.beaconId;
+    beaconIdInput.disabled = true; // el ID no se cambia, se borra y se crea otro si de verdad cambio el hardware
+    beaconLabelInput.value = p.label;
+    studentRowsEl.innerHTML = "";
+    p.students.forEach((s) => addStudentRow(s));
+    msgEl.textContent = "";
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function renderList() {
+    const list = window.PairingStore.getPairings();
+    if (list.length === 0) {
+      listEl.innerHTML = '<div class="empty">Todavía no hay balizas emparejadas.</div>';
+      return;
+    }
+    listEl.innerHTML = "";
+    list
+      .slice()
+      .sort((a, b) => a.label.localeCompare(b.label))
+      .forEach((p) => {
+        const el = document.createElement("div");
+        el.className = "pairing";
+        el.innerHTML = `
+          <div class="top">
+            <div>
+              <div class="label">${p.label}</div>
+              <div class="id">${p.beaconId}</div>
+            </div>
+            <div style="display:flex;gap:6px;">
+              <button data-edit="${p.beaconId}">Editar</button>
+              <button class="danger-mini" data-delete="${p.beaconId}">Eliminar</button>
+            </div>
+          </div>
+          <div class="students">
+            ${p.students.map((s) => {
+              const color = s.nivel ? window.NivelColors.colorForNivel(s.nivel).strong : null;
+              const style = color ? `style="background:${color};"` : "";
+              return `<span class="chip${color ? " nivel" : ""}" ${style}>${s.name}${s.grupo ? " — " + s.grupo : ""}</span>`;
+            }).join("")}
+          </div>
+        `;
+        listEl.appendChild(el);
+      });
+  }
+
+  listEl.addEventListener("click", (e) => {
+    const editBtn = e.target.closest("[data-edit]");
+    const delBtn = e.target.closest("[data-delete]");
+    if (editBtn) startEdit(editBtn.dataset.edit);
+    if (delBtn) {
+      if (confirm("¿Eliminar este emparejamiento?")) {
+        window.PairingStore.deletePairing(delBtn.dataset.delete);
+        renderList();
+      }
+    }
+  });
+
+  resetForm();
+  renderList();
+</script>
+</body>
+</html>
