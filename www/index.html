@@ -62,6 +62,7 @@
   const SCHOOL_UUID = "8F4901A9-5C5A-46C0-8CD9-DC144852AC8C";
 
   const BLE = () => window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BluetoothLe;
+  let bleScanListener = null; // handle del addListener('onScanResult'), para poder quitarlo al detener
   // Fuera de la app nativa (Android/iOS con Capacitor) esto corre en Chrome
   // de escritorio normal usando Web Bluetooth directamente -- sirve solo
   // para validar rapido que el hardware si transmite y que la lectura de
@@ -159,14 +160,26 @@
         await ble.initialize();
         statusEl.textContent = "Bluetooth inicializado. Escaneando...";
         log("BLE inicializado, iniciando escaneo.");
-        await ble.requestLEScan({}, onScanResult);
+        // El plugin de Capacitor no acepta el callback como segundo
+        // parametro de requestLEScan (asi funciona BleClient, la envoltura
+        // de alto nivel, pero no el plugin crudo que usamos aqui) -- hay que
+        // suscribirse aparte con addListener ANTES de pedir el escaneo, o
+        // los resultados nunca llegan aunque el escaneo si arranque sin
+        // error. Este era el bug real detras de "escanea pero no detecta
+        // nada".
+        if (bleScanListener) { await bleScanListener.remove(); bleScanListener = null; }
+        bleScanListener = await ble.addListener("onScanResult", (result) => onScanResult(result));
+        await ble.requestLEScan({});
         scanning = true;
         btnScan.textContent = "Detener escaneo";
         btnScan.classList.add("scanning");
         renderTimer = setInterval(render, 1000);
       } catch (err) {
-        statusEl.textContent = "Error al iniciar el escaneo: " + err.message;
-        log("ERROR al iniciar escaneo: " + JSON.stringify(err));
+        // JSON.stringify(err) da "{}" porque los Error de JS no traen
+        // "message" como propiedad enumerable -- por eso antes el log de
+        // abajo salia vacio aunque statusEl si tenia el mensaje real.
+        statusEl.textContent = "Error al iniciar el escaneo: " + (err.message || err);
+        log("ERROR al iniciar escaneo: " + (err.message || err));
       }
       return;
     }
@@ -218,7 +231,10 @@
   async function stopScan() {
     const ble = BLE();
     if (ble) {
-      try { await ble.stopLEScan(); } catch (err) { log("ERROR al detener: " + JSON.stringify(err)); }
+      try {
+        await ble.stopLEScan();
+        if (bleScanListener) { await bleScanListener.remove(); bleScanListener = null; }
+      } catch (err) { log("ERROR al detener: " + (err.message || err)); }
     } else if (webBleDevice && webBleDevice.watchingAdvertisements) {
       try { webBleDevice.unwatchAdvertisements(); } catch (err) { log("ERROR al detener (Web Bluetooth): " + err.message); }
     }
